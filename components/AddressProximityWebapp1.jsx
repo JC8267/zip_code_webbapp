@@ -274,7 +274,7 @@ const AddressProximityWebapp = () => {
   return (
     <Card>
       <CardHeader>
-        <h2>Address Proximity Webapp</h2>
+        <h2>Zip Code Finder</h2>
       </CardHeader>
       <CardContent>
         <Input
@@ -283,7 +283,7 @@ const AddressProximityWebapp = () => {
           onChange={handleAddressChange}  // This references the function to update the state
         />
         <Button onClick={getProximityIsochrones} disabled={loading}>
-          {loading ? 'Loading...' : 'Get Proximity Isochrones'}
+          {loading ? 'Loading...' : 'Find Zips'}
         </Button>
         {error && <p style={{ color: 'red' }}>{error}</p>}
 
