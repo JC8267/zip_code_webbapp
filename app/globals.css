@@ -67,3 +67,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+.map-container {
+  width: 100%;
+  height: 80vh; /* Default height */
+}
+
+@media (max-width: 768px) {
+  .map-container {
+    height: 60vh; /* Smaller height for mobile screens */
+  }
+}
+
+@media (min-width: 1200px) {
+  .map-container {
+    height: 90vh; /* Larger height for bigger screens */
+  }
+}
