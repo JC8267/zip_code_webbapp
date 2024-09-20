@@ -149,11 +149,11 @@ const AddressProximityWebapp = () => {
       setError('Please enter a valid address.');
       return;
     }
-
+  
     setLoading(true);
     setError(null);
     setZipcodes({ '0-20': [], '20-40': [] });  // Reset ZIP codes on each new search
-
+  
     try {
       // Geocode the address to get coordinates
       const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${mapboxgl.accessToken}`;
@@ -162,38 +162,45 @@ const AddressProximityWebapp = () => {
       const [lng, lat] = geocodeData.features[0].center;
       setLng(lng);
       setLat(lat);
-
+  
+      // Move the map to the input address
+      map.current.flyTo({
+        center: [lng, lat],
+        zoom: 12,  // Adjust zoom level based on your requirements
+        essential: true // This ensures the animation occurs smoothly
+      });
+  
+      // Add or update the marker for the inputted address
+      if (marker.current) {
+        marker.current.setLngLat([lng, lat]);
+      } else {
+        marker.current = new mapboxgl.Marker().setLngLat([lng, lat]).addTo(map.current);
+      }
+  
       // Get isochrones for both 0-20 and 20-40 minute ranges
       const timeRanges = [
         { time: 20, label: '0-20' },
         { time: 40, label: '20-40' },
       ];
-
+  
       const zipcodesForAllRanges = { '0-20': [], '20-40': [] };
-
+  
       for (const { time, label } of timeRanges) {
         const isochroneUrl = `https://api.mapbox.com/isochrone/v1/mapbox/driving/${lng},${lat}?contours_minutes=${time}&polygons=true&access_token=${mapboxgl.accessToken}`;
         const isochroneResponse = await fetch(isochroneUrl);
         const isochroneData = await isochroneResponse.json();
-
-        // Add or update the marker for the inputted address
-        if (marker.current) {
-          marker.current.setLngLat([lng, lat]);
-        } else {
-          marker.current = new mapboxgl.Marker().setLngLat([lng, lat]).addTo(map.current);
-        }
-
+  
         // Set the isochrone data as a layer on the map
         if (map.current.getSource('isochrone')) {
           map.current.removeLayer('isochrone');
           map.current.removeSource('isochrone');
         }
-
+  
         map.current.addSource('isochrone', {
           type: 'geojson',
           data: isochroneData,  // Isochrone GeoJSON data
         });
-
+  
         map.current.addLayer({
           id: 'isochrone',
           type: 'fill',
@@ -204,6 +211,7 @@ const AddressProximityWebapp = () => {
             'fill-opacity': 0.5,
           },
         });
+  
 
         // Fetch ZIP codes for each isochrone area
         const fetchedZipCodes = await fetchZipCodes(isochroneData, label);
