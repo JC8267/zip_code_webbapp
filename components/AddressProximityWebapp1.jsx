@@ -72,7 +72,6 @@ const ikeaLocations = {
 
 const AddressProximityWebapp = () => {
   const [address, setAddress] = useState('');
-  const [isochroneData, setIsochroneData] = useState(null);
   const [zipcodes, setZipcodes] = useState({
     '0-20': [],
     '20-40': [],
@@ -85,7 +84,6 @@ const AddressProximityWebapp = () => {
   const marker = useRef(null);  // Marker reference for the input address
   const [lng, setLng] = useState(-75.1652);  // Default longitude
   const [lat, setLat] = useState(39.9526);   // Default latitude
-  const [zoom, setZoom] = useState(12);      // Default zoom level
 
   // Initialize the Map
   useEffect(() => {
@@ -94,7 +92,7 @@ const AddressProximityWebapp = () => {
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/streets-v11',  // Map style
       center: [lng, lat],
-      zoom: zoom,
+      zoom: 12,
     });
 
     // Add IKEA Locations as POIs to the map
@@ -138,7 +136,7 @@ const AddressProximityWebapp = () => {
         map.current.getCanvas().style.cursor = '';
       });
     });
-  }, []);
+  }, [lat, lng]);
 
   // Function to update the address state on input change
   const handleAddressChange = (event) => {
