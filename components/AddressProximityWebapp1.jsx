@@ -9,10 +9,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { saveAs } from 'file-saver';
 import Papa from 'papaparse';
 
-// Mapbox API key
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
 
-// IKEA POI GeoJSON data (expanded list of IKEA locations)
 const ikeaLocations = {
   "type": "FeatureCollection",
   "features": [
@@ -79,23 +77,21 @@ const AddressProximityWebapp = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const mapContainer = useRef(null);  // Map container reference
-  const map = useRef(null);  // Map reference
-  const marker = useRef(null);  // Marker reference for the input address
-  const [lng, setLng] = useState(-75.1652);  // Default longitude
-  const [lat, setLat] = useState(39.9526);   // Default latitude
+  const mapContainer = useRef(null);
+  const map = useRef(null);
+  const marker = useRef(null);
+  const [lng, setLng] = useState(-75.1652);
+  const [lat, setLat] = useState(39.9526);
 
-  // Initialize the Map
   useEffect(() => {
-    if (map.current) return;  // Only initialize map once
+    if (map.current) return;
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/streets-v11',  // Map style
+      style: 'mapbox://styles/mapbox/streets-v11',
       center: [lng, lat],
       zoom: 12,
     });
 
-    // Add IKEA Locations as POIs to the map
     map.current.on('load', () => {
       map.current.addSource('ikea-locations', {
         type: 'geojson',
@@ -107,7 +103,7 @@ const AddressProximityWebapp = () => {
         type: 'symbol',
         source: 'ikea-locations',
         layout: {
-          'icon-image': 'shop-15',  // Default shop icon
+          'icon-image': 'shop-15',
           'icon-size': 1.5,
           'text-field': ['get', 'name'],
           'text-offset': [0, 1.25],
@@ -115,7 +111,6 @@ const AddressProximityWebapp = () => {
         },
       });
 
-      // Add popups when clicking on IKEA locations
       map.current.on('click', 'ikea-locations', (e) => {
         const coordinates = e.features[0].geometry.coordinates.slice();
         const { name } = e.features[0].properties;
@@ -126,24 +121,20 @@ const AddressProximityWebapp = () => {
           .addTo(map.current);
       });
 
-      // Change the cursor to a pointer when over IKEA locations
       map.current.on('mouseenter', 'ikea-locations', () => {
         map.current.getCanvas().style.cursor = 'pointer';
       });
 
-      // Reset the cursor when not hovering over IKEA locations
       map.current.on('mouseleave', 'ikea-locations', () => {
         map.current.getCanvas().style.cursor = '';
       });
     });
   }, [lat, lng]);
 
-  // Function to update the address state on input change
   const handleAddressChange = (event) => {
-    setAddress(event.target.value);  // Update the address state
+    setAddress(event.target.value);
   };
 
-  // Function to get proximity isochrones and set marker
   const getProximityIsochrones = async () => {
     if (!address.trim()) {
       setError('Please enter a valid address.');
@@ -152,10 +143,9 @@ const AddressProximityWebapp = () => {
 
     setLoading(true);
     setError(null);
-    setZipcodes({ '0-20': [], '20-40': [] });  // Reset ZIP codes on each new search
+    setZipcodes({ '0-20': [], '20-40': [] });
 
     try {
-      // Geocode the address to get coordinates
       const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${mapboxgl.accessToken}`;
       const geocodeResponse = await fetch(geocodeUrl);
       const geocodeData = await geocodeResponse.json();
@@ -163,14 +153,12 @@ const AddressProximityWebapp = () => {
       setLng(lng);
       setLat(lat);
 
-      // Move the map to the input address
       map.current.flyTo({
         center: [lng, lat],
-        zoom: 14,  // Adjust zoom level based on your requirements
-        essential: true // This ensures the animation occurs smoothly
+        zoom: 14,
+        essential: true
       });
 
-      // Get isochrones for both 0-20 and 20-40 minute ranges
       const timeRanges = [
         { time: 20, label: '0-20' },
         { time: 40, label: '20-40' },
@@ -183,14 +171,12 @@ const AddressProximityWebapp = () => {
         const isochroneResponse = await fetch(isochroneUrl);
         const isochroneData = await isochroneResponse.json();
 
-        // Add or update the marker for the inputted address
         if (marker.current) {
           marker.current.setLngLat([lng, lat]);
         } else {
           marker.current = new mapboxgl.Marker().setLngLat([lng, lat]).addTo(map.current);
         }
 
-        // Set the isochrone data as a layer on the map
         if (map.current.getSource('isochrone')) {
           map.current.removeLayer('isochrone');
           map.current.removeSource('isochrone');
@@ -198,7 +184,7 @@ const AddressProximityWebapp = () => {
 
         map.current.addSource('isochrone', {
           type: 'geojson',
-          data: isochroneData,  // Isochrone GeoJSON data
+          data: isochroneData,
         });
 
         map.current.addLayer({
@@ -212,12 +198,12 @@ const AddressProximityWebapp = () => {
           },
         });
 
-        // Fetch ZIP codes for each isochrone area
         const fetchedZipCodes = await fetchZipCodes(isochroneData, label);
         zipcodesForAllRanges[label] = fetchedZipCodes;
       }
 
-      // Deduplicate the 20-40 minute ZIP codes by removing those that are also in the 0-20 minute range
+
+      
       const uniqueZipcodes20to40 = zipcodesForAllRanges['20-40'].filter(zip => !zipcodesForAllRanges['0-20'].includes(zip));
       zipcodesForAllRanges['20-40'] = uniqueZipcodes20to40;
 
@@ -230,7 +216,7 @@ const AddressProximityWebapp = () => {
     }
   };
 
-  // Function to fetch ZIP codes from the server for each isochrone range
+  
   const fetchZipCodes = async (isolineData, label) => {
     try {
       const response = await fetch('/api/getZipCodes', {
@@ -254,7 +240,7 @@ const AddressProximityWebapp = () => {
     }
   };
 
-  // Export ZIP codes to CSV
+  
   const exportToCSV = () => {
     const { '0-20': zip0to20, '20-40': zip20to40 } = zipcodes;
     const maxLength = Math.max(zip0to20.length, zip20to40.length);
@@ -280,7 +266,7 @@ const AddressProximityWebapp = () => {
         <Input
           placeholder="Enter an address"
           value={address}
-          onChange={handleAddressChange}  // This references the function to update the state
+          onChange={handleAddressChange}  
         />
         <Button onClick={getProximityIsochrones} disabled={loading}>
           {loading ? 'Loading...' : 'Find Zips'}
@@ -299,7 +285,7 @@ const AddressProximityWebapp = () => {
           ref={mapContainer}
           style={{
             width: '100%',
-            height: '80vh',  // Set height to 80% of the viewport height
+            height: '80vh',  
             marginTop: '20px'
           }}
         />
