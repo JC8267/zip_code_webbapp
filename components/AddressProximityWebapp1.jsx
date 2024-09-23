@@ -135,6 +135,19 @@ const AddressProximityWebapp = () => {
     setAddress(event.target.value);
   };
 
+  
+  const removeIsochroneLayersAndSources = (timeRanges) => {
+    timeRanges.forEach(({ label }) => {
+      if (map.current.getLayer(`isochrone-${label}`)) {
+        map.current.removeLayer(`isochrone-${label}`);
+      }
+      if (map.current.getSource(`isochrone-${label}`)) {
+        map.current.removeSource(`isochrone-${label}`);
+      }
+    });
+  };
+
+  
   const getProximityIsochrones = async () => {
     if (!address.trim()) {
       setError('Please enter a valid address.');
@@ -146,6 +159,7 @@ const AddressProximityWebapp = () => {
     setZipcodes({ '0-20': [], '20-40': [] });
 
     try {
+      
       const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${mapboxgl.accessToken}`;
       const geocodeResponse = await fetch(geocodeUrl);
       const geocodeData = await geocodeResponse.json();
@@ -160,48 +174,48 @@ const AddressProximityWebapp = () => {
       });
 
       const timeRanges = [
-        { time: 20, label: '0-20' },
-        { time: 40, label: '20-40' },
+        { time: 20, label: '0-20', color: '#FF0000' },  
+        { time: 40, label: '20-40', color: '#0000FF' },  
       ];
+
+      
+      removeIsochroneLayersAndSources(timeRanges);
 
       const zipcodesForAllRanges = { '0-20': [], '20-40': [] };
 
-      for (const { time, label } of timeRanges) {
+      for (const { time, label, color } of timeRanges) {
         const isochroneUrl = `https://api.mapbox.com/isochrone/v1/mapbox/driving/${lng},${lat}?contours_minutes=${time}&polygons=true&access_token=${mapboxgl.accessToken}`;
         const isochroneResponse = await fetch(isochroneUrl);
         const isochroneData = await isochroneResponse.json();
 
+        
         if (marker.current) {
           marker.current.setLngLat([lng, lat]);
         } else {
           marker.current = new mapboxgl.Marker().setLngLat([lng, lat]).addTo(map.current);
         }
 
-        if (map.current.getSource('isochrone')) {
-          map.current.removeLayer('isochrone');
-          map.current.removeSource('isochrone');
-        }
-
-        map.current.addSource('isochrone', {
+        
+        map.current.addSource(`isochrone-${label}`, {
           type: 'geojson',
           data: isochroneData,
         });
 
         map.current.addLayer({
-          id: 'isochrone',
+          id: `isochrone-${label}`,
           type: 'fill',
-          source: 'isochrone',
+          source: `isochrone-${label}`,
           layout: {},
           paint: {
-            'fill-color': '#888888',
-            'fill-opacity': 0.5,
+            'fill-color': color,
+            'fill-opacity': 0.4,
           },
         });
 
+       
         const fetchedZipCodes = await fetchZipCodes(isochroneData, label);
         zipcodesForAllRanges[label] = fetchedZipCodes;
       }
-
 
       
       const uniqueZipcodes20to40 = zipcodesForAllRanges['20-40'].filter(zip => !zipcodesForAllRanges['0-20'].includes(zip));
