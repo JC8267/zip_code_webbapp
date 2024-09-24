@@ -73,6 +73,7 @@ const AddressProximityWebapp = () => {
   const [zipcodes, setZipcodes] = useState({
     '0-20': [],
     '20-40': [],
+    '40-60':[],
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -144,6 +145,9 @@ const AddressProximityWebapp = () => {
       if (map.current.getSource(`isochrone-${label}`)) {
         map.current.removeSource(`isochrone-${label}`);
       }
+      if (map.current.getSource(`isochrone-${label}`)) {
+        map.current.removeSource(`isochrone-${label}`);
+      }
     });
   };
 
@@ -156,7 +160,7 @@ const AddressProximityWebapp = () => {
 
     setLoading(true);
     setError(null);
-    setZipcodes({ '0-20': [], '20-40': [] });
+    setZipcodes({ '0-20': [], '20-40': [], '40-60':[] });
 
     try {
       
@@ -175,13 +179,14 @@ const AddressProximityWebapp = () => {
 
       const timeRanges = [
         { time: 20, label: '0-20', color: '#FF0000' },  
-        { time: 40, label: '20-40', color: '#0000FF' },  
+        { time: 40, label: '20-40', color: '#0000FF' },
+        { time: 60, label: '40-60', color: '#11ff00' },   
       ];
 
       
       removeIsochroneLayersAndSources(timeRanges);
 
-      const zipcodesForAllRanges = { '0-20': [], '20-40': [] };
+      const zipcodesForAllRanges = { '0-20': [], '20-40': [], '40-60': [] };
 
       for (const { time, label, color } of timeRanges) {
         const isochroneUrl = `https://api.mapbox.com/isochrone/v1/mapbox/driving/${lng},${lat}?contours_minutes=${time}&polygons=true&access_token=${mapboxgl.accessToken}`;
@@ -214,62 +219,64 @@ const AddressProximityWebapp = () => {
 
        
         const fetchedZipCodes = await fetchZipCodes(isochroneData, label);
-        zipcodesForAllRanges[label] = fetchedZipCodes;
-      }
-
-      
-      const uniqueZipcodes20to40 = zipcodesForAllRanges['20-40'].filter(zip => !zipcodesForAllRanges['0-20'].includes(zip));
-      zipcodesForAllRanges['20-40'] = uniqueZipcodes20to40;
-
-      setZipcodes(zipcodesForAllRanges);
-
-    } catch (error) {
-      setError(`An error occurred: ${error.message}. Please try again.`);
-    } finally {
-      setLoading(false);
+      zipcodesForAllRanges[label] = fetchedZipCodes;
     }
-  };
 
-  
-  const fetchZipCodes = async (isolineData, label) => {
-    try {
-      const response = await fetch('/api/getZipCodes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ isolineGeometry: isolineData.features[0].geometry.coordinates[0] }),
-      });
+    
 
-      const data = await response.json();
-      if (data.zipcodes) {
-        return data.zipcodes;
-      } else {
-        setError(`No ZIP codes found within the ${label} isochrone.`);
-        return [];
-      }
-    } catch (error) {
-      setError(`Error fetching ZIP codes for the ${label} range.`);
+    const uniqueZipcodes40to60 = zipcodesForAllRanges['40-60'].filter(zip => !zipcodesForAllRanges['0-20'].includes(zip) && !zipcodesForAllRanges['20-40'].includes(zip));
+    zipcodesForAllRanges['40-60'] = uniqueZipcodes40to60;
+
+    setZipcodes(zipcodesForAllRanges);
+
+  } catch (error) {
+    setError(`An error occurred: ${error.message}. Please try again.`);
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Updated fetchZipCodes function
+const fetchZipCodes = async (isolineData, label) => {
+  try {
+    const response = await fetch('/api/getZipCodes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ isolineGeometry: isolineData.features[0].geometry.coordinates[0] }),
+    });
+
+    const data = await response.json();
+    if (data.zipcodes) {
+      return data.zipcodes;
+    } else {
+      setError(`No ZIP codes found within the ${label} isochrone.`);
       return [];
     }
-  };
+  } catch (error) {
+    setError(`Error fetching ZIP codes for the ${label} range.`);
+    return [];
+  }
+};
 
-  
-  const exportToCSV = () => {
-    const { '0-20': zip0to20, '20-40': zip20to40 } = zipcodes;
-    const maxLength = Math.max(zip0to20.length, zip20to40.length);
-    const csvData = [
-      ['ZIP Codes (0-20 min)', 'ZIP Codes (20-40 min)'],
-      ...Array.from({ length: maxLength }, (_, i) => [
-        zip0to20[i] || '',
-        zip20to40[i] || '',
-      ]),
-    ];
+// Update exportToCSV to include 40-60 min range
+const exportToCSV = () => {
+  const { '0-20': zip0to20, '20-40': zip20to40, '40-60': zip40to60 } = zipcodes;
+  const maxLength = Math.max(zip0to20.length, zip20to40.length, zip40to60.length);
+  const csvData = [
+    ['ZIP Codes (0-20 min)', 'ZIP Codes (20-40 min)', 'ZIP Codes (40-60 min)'],
+    ...Array.from({ length: maxLength }, (_, i) => [
+      zip0to20[i] || '',
+      zip20to40[i] || '',
+      zip40to60[i] || '',
+    ]),
+  ];
 
-    const csvString = Papa.unparse(csvData);
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8' });
-    saveAs(blob, 'proximity_zipcodes.csv');
-  };
+  const csvString = Papa.unparse(csvData);
+  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8' });
+  saveAs(blob, 'proximity_zipcodes.csv');
+};
 
   return (
     <Card>
