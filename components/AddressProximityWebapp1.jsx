@@ -314,11 +314,10 @@ const AddressProximityWebapp = () => {
       () => {
         setCopyMessage('ZIP codes copied to clipboard!');
       },
-      (err) => {
+      () => {
         setError('Failed to copy ZIP codes to clipboard.');
       }
     );
-  };
 
   return (
     <Card>
