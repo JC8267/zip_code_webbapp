@@ -318,6 +318,7 @@ const AddressProximityWebapp = () => {
         setError('Failed to copy ZIP codes to clipboard.');
       }
     );
+  };
 
   return (
     <Card>
