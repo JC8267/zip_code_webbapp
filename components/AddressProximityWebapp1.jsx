@@ -73,10 +73,13 @@ const AddressProximityWebapp = () => {
   const [zipcodes, setZipcodes] = useState({
     '0-20': [],
     '20-40': [],
-    '40-60':[],
+    '40-60': [],
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const [showZipcodes, setShowZipcodes] = useState(false);
+  const [copyMessage, setCopyMessage] = useState('');
 
   const mapContainer = useRef(null);
   const map = useRef(null);
@@ -136,7 +139,6 @@ const AddressProximityWebapp = () => {
     setAddress(event.target.value);
   };
 
-  
   const removeIsochroneLayersAndSources = (timeRanges) => {
     timeRanges.forEach(({ label }) => {
       if (map.current.getLayer(`isochrone-${label}`)) {
@@ -145,13 +147,9 @@ const AddressProximityWebapp = () => {
       if (map.current.getSource(`isochrone-${label}`)) {
         map.current.removeSource(`isochrone-${label}`);
       }
-      if (map.current.getSource(`isochrone-${label}`)) {
-        map.current.removeSource(`isochrone-${label}`);
-      }
     });
   };
 
-  
   const getProximityIsochrones = async () => {
     if (!address.trim()) {
       setError('Please enter a valid address.');
@@ -160,11 +158,15 @@ const AddressProximityWebapp = () => {
 
     setLoading(true);
     setError(null);
-    setZipcodes({ '0-20': [], '20-40': [], '40-60':[] });
+    setZipcodes({ '0-20': [], '20-40': [], '40-60': [] });
+    setShowZipcodes(false);
+    setCopyMessage('');
 
     try {
-      
-      const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${mapboxgl.accessToken}`;
+      // Geocode the address
+      const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+        address
+      )}.json?access_token=${mapboxgl.accessToken}`;
       const geocodeResponse = await fetch(geocodeUrl);
       const geocodeData = await geocodeResponse.json();
       const [lng, lat] = geocodeData.features[0].center;
@@ -174,16 +176,15 @@ const AddressProximityWebapp = () => {
       map.current.flyTo({
         center: [lng, lat],
         zoom: 14,
-        essential: true
+        essential: true,
       });
 
       const timeRanges = [
-        { time: 20, label: '0-20', color: '#FF0000' },  
+        { time: 20, label: '0-20', color: '#FF0000' },
         { time: 40, label: '20-40', color: '#0000FF' },
-        { time: 60, label: '40-60', color: '#11ff00' },   
+        { time: 60, label: '40-60', color: '#11ff00' },
       ];
 
-      
       removeIsochroneLayersAndSources(timeRanges);
 
       const zipcodesForAllRanges = { '0-20': [], '20-40': [], '40-60': [] };
@@ -193,14 +194,12 @@ const AddressProximityWebapp = () => {
         const isochroneResponse = await fetch(isochroneUrl);
         const isochroneData = await isochroneResponse.json();
 
-        
         if (marker.current) {
           marker.current.setLngLat([lng, lat]);
         } else {
           marker.current = new mapboxgl.Marker().setLngLat([lng, lat]).addTo(map.current);
         }
 
-        
         map.current.addSource(`isochrone-${label}`, {
           type: 'geojson',
           data: isochroneData,
@@ -217,66 +216,109 @@ const AddressProximityWebapp = () => {
           },
         });
 
-       
+        // Fetch ZIP codes for the current isochrone
         const fetchedZipCodes = await fetchZipCodes(isochroneData, label);
-      zipcodesForAllRanges[label] = fetchedZipCodes;
+
+        // Remove duplicates within the current range
+        const uniqueFetchedZipCodes = [...new Set(fetchedZipCodes)];
+
+        // Assign the unique ZIP codes to the current time range
+        zipcodesForAllRanges[label] = uniqueFetchedZipCodes;
+      }
+
+      // De-duplicate '20-40' min range with respect to '0-20' min range
+      const uniqueZipcodes20to40 = zipcodesForAllRanges['20-40'].filter(
+        (zip) => !zipcodesForAllRanges['0-20'].includes(zip)
+      );
+      zipcodesForAllRanges['20-40'] = uniqueZipcodes20to40;
+
+      // De-duplicate '40-60' min range with respect to '0-20' and '20-40' min ranges
+      const uniqueZipcodes40to60 = zipcodesForAllRanges['40-60'].filter(
+        (zip) =>
+          !zipcodesForAllRanges['0-20'].includes(zip) &&
+          !zipcodesForAllRanges['20-40'].includes(zip)
+      );
+      zipcodesForAllRanges['40-60'] = uniqueZipcodes40to60;
+
+      // Update state with de-duplicated ZIP codes
+      setZipcodes(zipcodesForAllRanges);
+    } catch (error) {
+      setError(`An error occurred: ${error.message}. Please try again.`);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    
+  const fetchZipCodes = async (isolineData, label) => {
+    try {
+      const response = await fetch('/api/getZipCodes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ isolineGeometry: isolineData.features[0].geometry.coordinates[0] }),
+      });
 
-    const uniqueZipcodes40to60 = zipcodesForAllRanges['40-60'].filter(zip => !zipcodesForAllRanges['0-20'].includes(zip) && !zipcodesForAllRanges['20-40'].includes(zip));
-    zipcodesForAllRanges['40-60'] = uniqueZipcodes40to60;
-
-    setZipcodes(zipcodesForAllRanges);
-
-  } catch (error) {
-    setError(`An error occurred: ${error.message}. Please try again.`);
-  } finally {
-    setLoading(false);
-  }
-};
-
-// Updated fetchZipCodes function
-const fetchZipCodes = async (isolineData, label) => {
-  try {
-    const response = await fetch('/api/getZipCodes', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ isolineGeometry: isolineData.features[0].geometry.coordinates[0] }),
-    });
-
-    const data = await response.json();
-    if (data.zipcodes) {
-      return data.zipcodes;
-    } else {
-      setError(`No ZIP codes found within the ${label} isochrone.`);
+      const data = await response.json();
+      if (data.zipcodes) {
+        return data.zipcodes;
+      } else {
+        setError(`No ZIP codes found within the ${label} isochrone.`);
+        return [];
+      }
+    } catch (error) {
+      setError(`Error fetching ZIP codes for the ${label} range.`);
       return [];
     }
-  } catch (error) {
-    setError(`Error fetching ZIP codes for the ${label} range.`);
-    return [];
-  }
-};
+  };
 
-// Update exportToCSV to include 40-60 min range
-const exportToCSV = () => {
-  const { '0-20': zip0to20, '20-40': zip20to40, '40-60': zip40to60 } = zipcodes;
-  const maxLength = Math.max(zip0to20.length, zip20to40.length, zip40to60.length);
-  const csvData = [
-    ['ZIP Codes (0-20 min)', 'ZIP Codes (20-40 min)', 'ZIP Codes (40-60 min)'],
-    ...Array.from({ length: maxLength }, (_, i) => [
-      zip0to20[i] || '',
-      zip20to40[i] || '',
-      zip40to60[i] || '',
-    ]),
-  ];
+  const exportToCSV = () => {
+    const { '0-20': zip0to20, '20-40': zip20to40, '40-60': zip40to60 } = zipcodes;
+    const maxLength = Math.max(zip0to20.length, zip20to40.length, zip40to60.length);
+    const csvData = [
+      ['ZIP Codes (0-20 min)', 'ZIP Codes (20-40 min)', 'ZIP Codes (40-60 min)'],
+      ...Array.from({ length: maxLength }, (_, i) => [
+        zip0to20[i] || '',
+        zip20to40[i] || '',
+        zip40to60[i] || '',
+      ]),
+    ];
 
-  const csvString = Papa.unparse(csvData);
-  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8' });
-  saveAs(blob, 'proximity_zipcodes.csv');
-};
+    const csvString = Papa.unparse(csvData);
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8' });
+    saveAs(blob, 'proximity_zipcodes.csv');
+  };
+
+  const toggleShowZipcodes = () => {
+    setShowZipcodes((prev) => !prev);
+    setCopyMessage('');
+  };
+
+  const copyZipcodesToClipboard = () => {
+    const { '0-20': zip0to20, '20-40': zip20to40, '40-60': zip40to60 } = zipcodes;
+    const maxLength = Math.max(zip0to20.length, zip20to40.length, zip40to60.length);
+
+    const tableRows = [
+      ['ZIP Codes (0-20 min)', 'ZIP Codes (20-40 min)', 'ZIP Codes (40-60 min)'],
+      ...Array.from({ length: maxLength }, (_, i) => [
+        zip0to20[i] || '',
+        zip20to40[i] || '',
+        zip40to60[i] || '',
+      ]),
+    ];
+
+    // Convert tableRows to tab-separated values for Excel
+    const textToCopy = tableRows.map((row) => row.join('\t')).join('\n');
+
+    navigator.clipboard.writeText(textToCopy).then(
+      () => {
+        setCopyMessage('ZIP codes copied to clipboard!');
+      },
+      (err) => {
+        setError('Failed to copy ZIP codes to clipboard.');
+      }
+    );
+  };
 
   return (
     <Card>
@@ -284,21 +326,65 @@ const exportToCSV = () => {
         <h2>Zip Code Finder</h2>
       </CardHeader>
       <CardContent>
-        <Input
-          placeholder="Enter an address"
-          value={address}
-          onChange={handleAddressChange}  
-        />
-        <Button onClick={getProximityIsochrones} disabled={loading}>
-          {loading ? 'Loading...' : 'Find Zips'}
-        </Button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <Input
+            placeholder="Enter an address"
+            value={address}
+            onChange={handleAddressChange}
+            style={{ flex: 1 }}
+          />
+          <Button onClick={getProximityIsochrones} disabled={loading}>
+            {loading ? 'Loading...' : 'Find Zips'}
+          </Button>
+        </div>
         {error && <p style={{ color: 'red' }}>{error}</p>}
 
-        {/* Export ZIP codes to CSV */}
-        {(zipcodes['0-20'].length > 0 || zipcodes['20-40'].length > 0) && (
-          <Button onClick={exportToCSV} style={{ marginTop: '20px' }}>
-            Export ZIP Codes to CSV
-          </Button>
+        {/* Buttons to Show ZIP codes, Copy to Clipboard, and Export */}
+        {(zipcodes['0-20'].length > 0 ||
+          zipcodes['20-40'].length > 0 ||
+          zipcodes['40-60'].length > 0) && (
+          <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
+            <Button onClick={toggleShowZipcodes}>
+              {showZipcodes ? 'Hide ZIP Codes' : 'Show ZIP Codes'}
+            </Button>
+            <Button onClick={copyZipcodesToClipboard}>Copy ZIP Codes to Clipboard</Button>
+            <Button onClick={exportToCSV}>Export ZIP Codes to CSV</Button>
+          </div>
+        )}
+
+        {copyMessage && <p style={{ color: 'green' }}>{copyMessage}</p>}
+
+        {/* Display ZIP codes in a table */}
+        {showZipcodes && (
+          <div style={{ marginTop: '20px' }}>
+            <table border="1" cellPadding="5" cellSpacing="0">
+              <thead>
+                <tr>
+                  <th>ZIP Codes (0-20 min)</th>
+                  <th>ZIP Codes (20-40 min)</th>
+                  <th>ZIP Codes (40-60 min)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const { '0-20': zip0to20, '20-40': zip20to40, '40-60': zip40to60 } = zipcodes;
+                  const maxLength = Math.max(
+                    zip0to20.length,
+                    zip20to40.length,
+                    zip40to60.length
+                  );
+
+                  return Array.from({ length: maxLength }, (_, i) => (
+                    <tr key={i}>
+                      <td>{zip0to20[i] || ''}</td>
+                      <td>{zip20to40[i] || ''}</td>
+                      <td>{zip40to60[i] || ''}</td>
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {/* Map container */}
@@ -306,12 +392,10 @@ const exportToCSV = () => {
           ref={mapContainer}
           style={{
             width: '100%',
-            height: '80vh',  
-            marginTop: '20px'
+            height: '80vh',
+            marginTop: '20px',
           }}
         />
-
-       
       </CardContent>
     </Card>
   );
