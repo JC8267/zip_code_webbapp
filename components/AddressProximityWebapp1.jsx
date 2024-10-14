@@ -81,8 +81,8 @@ const AddressProximityWebapp = () => {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const markers = useRef([]);
-  const [lng, setLng] = useState(-75.1652);
-  const [lat, setLat] = useState(39.9526);
+  const [lng] = useState(-75.1652);
+  const [lat] = useState(39.9526);
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   useEffect(() => {
