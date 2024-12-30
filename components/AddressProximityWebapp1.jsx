@@ -163,96 +163,99 @@ const AddressProximityWebapp = () => {
       setError('Please enter at least one valid address.');
       return;
     }
-  
+
     // Set a maximum number of addresses to process at once (optional)
     const MAX_ADDRESSES = 10;
     if (addresses.length > MAX_ADDRESSES) {
       setError(`Please limit your input to ${MAX_ADDRESSES} addresses at a time.`);
       return;
     }
-  
+
     setLoading(true);
     setLoadingMessage('');
     setError(null);
     setAllZipcodes({});
     setShowZipcodes(false);
     setCopyMessage('');
-  
+
     // Clear existing markers and layers
     if (markers.current.length > 0) {
       markers.current.forEach(marker => marker.remove());
       markers.current = [];
     }
     removeAllIsochroneLayersAndSources();
-  
+
     const allZipcodes = {};
-  
+
     try {
       for (const [index, address] of addresses.entries()) {
         setLoadingMessage(`Processing address ${index + 1} of ${addresses.length}`);
-  
+
         // Introduce a delay before processing each address to avoid exceeding rate limits
         if (index > 0) {
           await delay(200); // Delay of 200 milliseconds between addresses
         }
-  
+
         // Geocode the address
         const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
           address
         )}.json?access_token=${mapboxgl.accessToken}`;
         const geocodeResponse = await fetch(geocodeUrl);
         const geocodeData = await geocodeResponse.json();
-  
+
         // Check if geocoding was successful
         if (!geocodeData.features || geocodeData.features.length === 0) {
           setError(`Geocoding failed for address: ${address}`);
           continue; // Skip to the next address
         }
-  
+
         const [lng, lat] = geocodeData.features[0].center;
-  
+
         // Add marker for the address
         const newMarker = new mapboxgl.Marker()
           .setLngLat([lng, lat])
           .setPopup(new mapboxgl.Popup().setText(address))
           .addTo(map.current);
         markers.current.push(newMarker);
-  
+
+        // UPDATED timeRanges for 4 isochrones
         const timeRanges = [
-          { time: 20, label: '0-20', color: '#FF0000' },
-          { time: 40, label: '20-40', color: '#0000FF' },
-          { time: 60, label: '40-60', color: '#11ff00' },
+          { time: 20, label: '0-20',   color: '#FF0000' },
+          { time: 30, label: '20-30',  color: '#FFA500' },
+          { time: 40, label: '30-40',  color: '#0000FF' },
+          { time: 60, label: '40-60',  color: '#11ff00' },
         ];
-  
+
         // Generate address label
         const addressLabel = address.substring(0, 10).replace(/\s+/g, '_');
-  
-        // Initialize ZIP code sets for this address
+
+        // UPDATED: Initialize 4 sets for zipcodes
         const zipcodesForAddress = {
           '0-20': new Set(),
-          '20-40': new Set(),
+          '20-30': new Set(),
+          '30-40': new Set(),
           '40-60': new Set(),
         };
-  
+
         for (const { time, label, color } of timeRanges) {
           // Introduce a delay before each isochrone API call to manage rate limits
           await delay(200); // Delay of 200 milliseconds between API calls
-  
+
           const isochroneUrl = `https://api.mapbox.com/isochrone/v1/mapbox/driving/${lng},${lat}?contours_minutes=${time}&polygons=true&access_token=${mapboxgl.accessToken}`;
           const isochroneResponse = await fetch(isochroneUrl);
           const isochroneData = await isochroneResponse.json();
-  
+
           // Check if isochrone data was returned
           if (!isochroneData.features || isochroneData.features.length === 0) {
             setError(`Isochrone API failed for address: ${address} at ${label} minutes`);
             continue; // Skip to the next time range
           }
-  
+
           map.current.addSource(`isochrone-${label}-${index}`, {
             type: 'geojson',
             data: isochroneData,
           });
-  
+
           map.current.addLayer({
             id: `isochrone-${label}-${index}`,
             type: 'fill',
@@ -263,33 +266,37 @@ const AddressProximityWebapp = () => {
               'fill-opacity': 0.2,
             },
           });
-  
+
           // Fetch ZIP codes for the current isochrone
           const fetchedZipCodes = await fetchZipCodes(isochroneData, label);
-  
+
           // Add unique ZIP codes to the set for this address and time range
           fetchedZipCodes.forEach(zip => zipcodesForAddress[label].add(zip));
         }
-  
-        // De-duplicate ZIP codes across time ranges for this address
+
+        // De-duplicate ZIP codes across the 4 time ranges
         const zip0to20 = Array.from(zipcodesForAddress['0-20']);
-        const zip20to40 = Array.from(zipcodesForAddress['20-40']).filter(
-          zip => !zip0to20.includes(zip)
+        const zip20to30 = Array.from(zipcodesForAddress['20-30']).filter(
+          (zip) => !zip0to20.includes(zip)
+        );
+        const zip30to40 = Array.from(zipcodesForAddress['30-40']).filter(
+          (zip) => !zip0to20.includes(zip) && !zip20to30.includes(zip)
         );
         const zip40to60 = Array.from(zipcodesForAddress['40-60']).filter(
-          zip => !zip0to20.includes(zip) && !zip20to40.includes(zip)
+          (zip) => !zip0to20.includes(zip) && !zip20to30.includes(zip) && !zip30to40.includes(zip)
         );
-  
+
         // Store in allZipcodes with address label
         allZipcodes[addressLabel] = {
           '0-20': zip0to20,
-          '20-40': zip20to40,
+          '20-30': zip20to30,
+          '30-40': zip30to40,
           '40-60': zip40to60,
         };
       }
-  
+
       setAllZipcodes(allZipcodes);
-  
+
       // Adjust the map view to fit all markers
       const bounds = new mapboxgl.LngLatBounds();
       markers.current.forEach(marker => bounds.extend(marker.getLngLat()));
