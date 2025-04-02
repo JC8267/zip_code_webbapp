@@ -165,7 +165,7 @@ const AddressProximityWebapp = () => {
     }
 
     // Set a maximum number of addresses to process at once (optional)
-    const MAX_ADDRESSES = 10;
+    const MAX_ADDRESSES = 100;
     if (addresses.length > MAX_ADDRESSES) {
       setError(`Please limit your input to ${MAX_ADDRESSES} addresses at a time.`);
       return;
