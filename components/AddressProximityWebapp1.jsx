@@ -24,6 +24,9 @@ mapboxgl.accessToken = MAPBOX_TOKEN;
 const MAX_ADDRESSES = 100;
 const API_DELAY_MS = 140;
 const MATCH_MODE = 'intersects';
+const IKEA_SOURCE_ID = 'ikea-locations';
+const IKEA_DOT_LAYER_ID = 'ikea-location-dots';
+const IKEA_LABEL_LAYER_ID = 'ikea-location-labels';
 
 const TIME_RANGES = [
   { time: 20, label: '0-20', color: '#f97316', bg: 'rgba(249,115,22,0.12)', text: '#fb923c' },
@@ -214,45 +217,68 @@ const AddressProximityWebapp = () => {
     mapInstance.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     mapInstance.on('load', () => {
-      if (!mapInstance.getSource('ikea-locations')) {
-        mapInstance.addSource('ikea-locations', {
+      if (!mapInstance.getSource(IKEA_SOURCE_ID)) {
+        mapInstance.addSource(IKEA_SOURCE_ID, {
           type: 'geojson',
           data: ikeaLocations,
         });
       }
 
-      if (!mapInstance.getLayer('ikea-locations')) {
+      if (!mapInstance.getLayer(IKEA_DOT_LAYER_ID)) {
         mapInstance.addLayer({
-          id: 'ikea-locations',
-          type: 'symbol',
-          source: 'ikea-locations',
-          layout: {
-            'icon-image': 'shop-15',
-            'icon-size': 1.2,
-            'text-field': ['get', 'name'],
-            'text-offset': [0, 1.1],
-            'text-anchor': 'top',
-            'text-size': 11,
-          },
+          id: IKEA_DOT_LAYER_ID,
+          type: 'circle',
+          source: IKEA_SOURCE_ID,
           paint: {
-            'text-color': '#94a3b8',
+            'circle-radius': 5.5,
+            'circle-color': '#f59e0b',
+            'circle-stroke-color': '#111827',
+            'circle-stroke-width': 1.2,
           },
         });
       }
 
-      mapInstance.on('click', 'ikea-locations', (event) => {
+      if (!mapInstance.getLayer(IKEA_LABEL_LAYER_ID)) {
+        mapInstance.addLayer({
+          id: IKEA_LABEL_LAYER_ID,
+          type: 'symbol',
+          source: IKEA_SOURCE_ID,
+          layout: {
+            'text-field': ['get', 'name'],
+            'text-offset': [0, 1.35],
+            'text-anchor': 'top',
+            'text-size': 10.5,
+          },
+          paint: {
+            'text-color': '#e2e8f0',
+            'text-halo-color': '#020617',
+            'text-halo-width': 1.1,
+          },
+        });
+      }
+
+      const handleIkeaClick = (event) => {
         const feature = event.features?.[0];
         if (!feature) return;
         const coordinates = feature.geometry.coordinates.slice();
         const { name } = feature.properties;
         new mapboxgl.Popup().setLngLat(coordinates).setHTML(`<h3>${name}</h3>`).addTo(mapInstance);
-      });
+      };
 
-      mapInstance.on('mouseenter', 'ikea-locations', () => {
+      mapInstance.on('click', IKEA_DOT_LAYER_ID, handleIkeaClick);
+      mapInstance.on('click', IKEA_LABEL_LAYER_ID, handleIkeaClick);
+
+      mapInstance.on('mouseenter', IKEA_DOT_LAYER_ID, () => {
+        mapInstance.getCanvas().style.cursor = 'pointer';
+      });
+      mapInstance.on('mouseenter', IKEA_LABEL_LAYER_ID, () => {
         mapInstance.getCanvas().style.cursor = 'pointer';
       });
 
-      mapInstance.on('mouseleave', 'ikea-locations', () => {
+      mapInstance.on('mouseleave', IKEA_DOT_LAYER_ID, () => {
+        mapInstance.getCanvas().style.cursor = '';
+      });
+      mapInstance.on('mouseleave', IKEA_LABEL_LAYER_ID, () => {
         mapInstance.getCanvas().style.cursor = '';
       });
     });
@@ -508,6 +534,12 @@ const AddressProximityWebapp = () => {
               'fill-outline-color': color,
             },
           });
+          if (map.current.getLayer(IKEA_DOT_LAYER_ID)) {
+            map.current.moveLayer(IKEA_DOT_LAYER_ID);
+          }
+          if (map.current.getLayer(IKEA_LABEL_LAYER_ID)) {
+            map.current.moveLayer(IKEA_LABEL_LAYER_ID);
+          }
 
           const fetchedZipCodes = await fetchZipCodes(isochroneData, label);
           fetchedZipCodes.forEach((zip) => zipcodesForAddress[label].add(zip));
