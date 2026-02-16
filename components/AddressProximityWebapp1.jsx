@@ -344,30 +344,95 @@ const AddressProximityWebapp = () => {
     });
   };
 
-  const fetchZipCodes = async (isolineData, label) => {
-    try {
-      const geometry = isolineData?.features?.[0]?.geometry;
-      if (!geometry) return [];
+  const getFallbackRing = (geometry) => {
+    if (!geometry || !Array.isArray(geometry.coordinates)) {
+      return null;
+    }
 
-      const response = await fetch('/api/getZipCodes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isolineGeometry: geometry, matchMode: MATCH_MODE }),
-      });
+    if (geometry.type === 'Polygon') {
+      return geometry.coordinates?.[0] || null;
+    }
 
-      const data = await response.json();
+    if (geometry.type === 'MultiPolygon') {
+      const rings = geometry.coordinates
+        .map((polygon) => polygon?.[0])
+        .filter((ring) => Array.isArray(ring) && ring.length >= 4);
 
-      if (!response.ok) {
-        setError(data?.error || `ZIP lookup failed for ${label} minutes.`);
-        return [];
+      if (rings.length === 0) {
+        return null;
       }
 
-      if (Array.isArray(data.zipcodes)) return data.zipcodes;
-      return [];
-    } catch (fetchError) {
-      setError(`Error fetching ZIP codes for the ${label} range.`);
-      return [];
+      // Use the densest ring as legacy fallback for stability on very large payloads.
+      rings.sort((a, b) => b.length - a.length);
+      return rings[0];
     }
+
+    return null;
+  };
+
+  const postZipCodeRequest = async (payload) => {
+    const response = await fetch('/api/getZipCodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const responseClone = response.clone();
+    let data = null;
+
+    try {
+      data = await response.json();
+    } catch {
+      const rawText = await responseClone.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: rawText?.slice(0, 180) || 'Non-JSON API response.',
+        data: null,
+      };
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      error: data?.error || null,
+      data,
+    };
+  };
+
+  const fetchZipCodes = async (isolineData, label) => {
+    const geometry = isolineData?.features?.[0]?.geometry;
+    if (!geometry) return [];
+
+    const fallbackRing = getFallbackRing(geometry);
+    const attempts = [{ isolineGeometry: geometry, matchMode: MATCH_MODE, requestType: 'full-geometry' }];
+
+    if (fallbackRing) {
+      attempts.push({ isolineGeometry: fallbackRing, matchMode: 'centroid', requestType: 'legacy-ring' });
+    }
+
+    let lastError = null;
+
+    for (const [attemptIndex, attemptPayload] of attempts.entries()) {
+      try {
+        const result = await postZipCodeRequest(attemptPayload);
+
+        if (result.ok) {
+          const zipcodes = Array.isArray(result.data?.zipcodes) ? result.data.zipcodes : [];
+          if (attemptIndex > 0) {
+            console.warn(`ZIP lookup fallback used for ${label} minutes.`);
+          }
+          return zipcodes;
+        }
+
+        lastError = result.error || `ZIP lookup failed (${result.status})`;
+      } catch (fetchError) {
+        lastError = fetchError?.message || 'Request failed';
+      }
+    }
+
+    setError(lastError || `Error fetching ZIP codes for the ${label} range.`);
+    return [];
   };
 
   const getGeocodeCoordinates = async (address) => {
