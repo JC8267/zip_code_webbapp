@@ -4,7 +4,6 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-let zipCodeGeoJSON = null;
 let zipFeatureIndex = null;
 let zipDataLoadPromise = null;
 const resultCache = new Map();
@@ -101,9 +100,9 @@ const buildIsolinePolygon = (isolineGeometry) => {
   return null;
 };
 
-const getCacheKey = (isolineFeature, matchMode) => {
+const getCacheKey = (isolineFeature) => {
   const geometry = turf.getGeom(isolineFeature);
-  const payload = JSON.stringify({ matchMode, geometry });
+  const payload = JSON.stringify(geometry);
   return crypto.createHash('sha1').update(payload).digest('hex');
 };
 
@@ -121,7 +120,7 @@ const loadZipCodeData = async () => {
     try {
       const filePath = path.join(process.cwd(), 'data', 'us-zip-code-boundaries.json');
       const fileData = fs.readFileSync(filePath, 'utf-8');
-      zipCodeGeoJSON = JSON.parse(fileData);
+      const zipCodeGeoJSON = JSON.parse(fileData);
 
       zipFeatureIndex = zipCodeGeoJSON.features
         .map((feature) => {
@@ -170,14 +169,7 @@ export const runtime = 'nodejs';
 export async function POST(request) {
   try {
     const data = await request.json();
-    const { isolineGeometry, matchMode = 'intersects' } = data;
-
-    if (!['intersects', 'centroid'].includes(matchMode)) {
-      return NextResponse.json(
-        { error: 'Invalid request: matchMode must be "intersects" or "centroid".' },
-        { status: 400 }
-      );
-    }
+    const { isolineGeometry } = data;
 
     const isolineFeature = buildIsolinePolygon(isolineGeometry);
     if (!isolineFeature) {
@@ -192,7 +184,7 @@ export async function POST(request) {
 
     await loadZipCodeData();
 
-    const cacheKey = getCacheKey(isolineFeature, matchMode);
+    const cacheKey = getCacheKey(isolineFeature);
     if (resultCache.has(cacheKey)) {
       return NextResponse.json({ zipcodes: resultCache.get(cacheKey), cached: true }, { status: 200 });
     }
@@ -203,24 +195,8 @@ export async function POST(request) {
     const matches = new Set();
 
     for (const candidate of candidates) {
-      if (matchMode === 'centroid') {
-        if (turf.booleanPointInPolygon(candidate.centroid, isolineFeature)) {
-          matches.add(candidate.zipCode);
-        }
-        continue;
-      }
-
       if (turf.booleanPointInPolygon(candidate.centroid, isolineFeature)) {
         matches.add(candidate.zipCode);
-        continue;
-      }
-
-      try {
-        if (turf.booleanIntersects(candidate.feature, isolineFeature)) {
-          matches.add(candidate.zipCode);
-        }
-      } catch {
-        continue;
       }
     }
 
