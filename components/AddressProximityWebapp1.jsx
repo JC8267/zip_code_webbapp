@@ -17,7 +17,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Search,
-  ChevronRight,
 } from 'lucide-react';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
