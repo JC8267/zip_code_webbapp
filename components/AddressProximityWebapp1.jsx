@@ -1,12 +1,24 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { saveAs } from 'file-saver';
 import Papa from 'papaparse';
+import {
+  MapPin,
+  Hash,
+  Copy,
+  Download,
+  Table2,
+  EyeOff,
+  Loader2,
+  Sparkles,
+  AlertTriangle,
+  CheckCircle2,
+  Search,
+  ChevronRight,
+} from 'lucide-react';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
 mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -15,10 +27,10 @@ const API_DELAY_MS = 140;
 const MATCH_MODE = 'intersects';
 
 const TIME_RANGES = [
-  { time: 20, label: '0-20', color: '#f97316' },
-  { time: 30, label: '20-30', color: '#facc15' },
-  { time: 40, label: '30-40', color: '#0ea5e9' },
-  { time: 60, label: '40-60', color: '#22c55e' },
+  { time: 20, label: '0-20', color: '#f97316', bg: 'rgba(249,115,22,0.12)', text: '#fb923c' },
+  { time: 30, label: '20-30', color: '#facc15', bg: 'rgba(250,204,21,0.12)', text: '#fde047' },
+  { time: 40, label: '30-40', color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)', text: '#38bdf8' },
+  { time: 60, label: '40-60', color: '#22c55e', bg: 'rgba(34,197,94,0.12)', text: '#4ade80' },
 ];
 
 const DEMO_ADDRESS_POOL = [
@@ -139,12 +151,31 @@ const buildDemoZipCoverage = (selectedAddresses) => {
   return coverage;
 };
 
+/* ─── Time-range badge component ─── */
+const TimeBadge = ({ label }) => {
+  const range = TIME_RANGES.find((r) => r.label === label);
+  if (!range) return <span>{label}</span>;
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: range.bg, color: range.text }}
+    >
+      <span
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ backgroundColor: range.color }}
+      />
+      {label} min
+    </span>
+  );
+};
+
 const AddressProximityWebapp = () => {
   const [addressesInput, setAddressesInput] = useState('');
   const [addresses, setAddresses] = useState([]);
   const [allZipcodes, setAllZipcodes] = useState({});
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [error, setError] = useState(null);
   const [showZipcodes, setShowZipcodes] = useState(false);
   const [copyMessage, setCopyMessage] = useState('');
@@ -155,6 +186,20 @@ const AddressProximityWebapp = () => {
   const geocodeCacheRef = useRef(new Map());
   const isochroneCacheRef = useRef(new Map());
 
+  /* ─── Auto-dismiss messages ─── */
+  useEffect(() => {
+    if (!copyMessage) return;
+    const t = setTimeout(() => setCopyMessage(''), 4000);
+    return () => clearTimeout(t);
+  }, [copyMessage]);
+
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(t);
+  }, [error]);
+
+  /* ─── Map init ─── */
   useEffect(() => {
     if (map.current || !mapContainer.current || !MAPBOX_TOKEN) {
       return;
@@ -162,7 +207,7 @@ const AddressProximityWebapp = () => {
 
     const mapInstance = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: 'mapbox://styles/mapbox/dark-v11',
       center: [-95.7129, 37.0902],
       zoom: 3,
     });
@@ -191,20 +236,16 @@ const AddressProximityWebapp = () => {
             'text-size': 11,
           },
           paint: {
-            'text-color': '#0f172a',
+            'text-color': '#94a3b8',
           },
         });
       }
 
       mapInstance.on('click', 'ikea-locations', (event) => {
         const feature = event.features?.[0];
-        if (!feature) {
-          return;
-        }
-
+        if (!feature) return;
         const coordinates = feature.geometry.coordinates.slice();
         const { name } = feature.properties;
-
         new mapboxgl.Popup().setLngLat(coordinates).setHTML(`<h3>${name}</h3>`).addTo(mapInstance);
       });
 
@@ -259,14 +300,9 @@ const AddressProximityWebapp = () => {
   };
 
   const removeAllIsochroneLayersAndSources = () => {
-    if (!map.current) {
-      return;
-    }
-
+    if (!map.current) return;
     const style = map.current.getStyle();
-    if (!style) {
-      return;
-    }
+    if (!style) return;
 
     const layers = style.layers || [];
     layers.forEach((layer) => {
@@ -286,15 +322,11 @@ const AddressProximityWebapp = () => {
   const fetchZipCodes = async (isolineData, label) => {
     try {
       const geometry = isolineData?.features?.[0]?.geometry;
-      if (!geometry) {
-        return [];
-      }
+      if (!geometry) return [];
 
       const response = await fetch('/api/getZipCodes', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isolineGeometry: geometry, matchMode: MATCH_MODE }),
       });
 
@@ -305,10 +337,7 @@ const AddressProximityWebapp = () => {
         return [];
       }
 
-      if (Array.isArray(data.zipcodes)) {
-        return data.zipcodes;
-      }
-
+      if (Array.isArray(data.zipcodes)) return data.zipcodes;
       return [];
     } catch (fetchError) {
       setError(`Error fetching ZIP codes for the ${label} range.`);
@@ -364,6 +393,7 @@ const AddressProximityWebapp = () => {
     setShowZipcodes(true);
     setLoading(false);
     setLoadingMessage('');
+    setLoadingProgress(0);
     setError('Demo mode active: using sample ZIP coverage because NEXT_PUBLIC_MAPBOX_API_KEY is not set.');
     setCopyMessage('Loaded 3 random demo addresses.');
   };
@@ -399,6 +429,7 @@ const AddressProximityWebapp = () => {
 
     setLoading(true);
     setLoadingMessage('Preparing requests...');
+    setLoadingProgress(0);
     setError(null);
     setAllZipcodes({});
     setShowZipcodes(false);
@@ -413,6 +444,8 @@ const AddressProximityWebapp = () => {
 
     const collectedZipcodes = {};
     const warnings = [];
+    const totalSteps = dedupedAddresses.length * (TIME_RANGES.length + 1);
+    let completedSteps = 0;
 
     try {
       if (dedupedAddresses.length !== addresses.length) {
@@ -422,11 +455,12 @@ const AddressProximityWebapp = () => {
       for (const [index, address] of dedupedAddresses.entries()) {
         setLoadingMessage(`Processing address ${index + 1} of ${dedupedAddresses.length}`);
 
-        if (index > 0) {
-          await delay(API_DELAY_MS);
-        }
+        if (index > 0) await delay(API_DELAY_MS);
 
         const geocodePoint = await getGeocodeCoordinates(address);
+        completedSteps++;
+        setLoadingProgress(Math.round((completedSteps / totalSteps) * 100));
+
         if (!geocodePoint) {
           warnings.push(`Geocoding failed for: ${address}`);
           continue;
@@ -434,7 +468,7 @@ const AddressProximityWebapp = () => {
 
         const { lng, lat } = geocodePoint;
 
-        const marker = new mapboxgl.Marker({ color: '#0f172a' })
+        const marker = new mapboxgl.Marker({ color: '#38bdf8' })
           .setLngLat([lng, lat])
           .setPopup(new mapboxgl.Popup().setText(address))
           .addTo(map.current);
@@ -446,6 +480,9 @@ const AddressProximityWebapp = () => {
           await delay(API_DELAY_MS);
 
           const isochroneData = await getIsochroneData(lng, lat, time);
+          completedSteps++;
+          setLoadingProgress(Math.round((completedSteps / totalSteps) * 100));
+
           if (!isochroneData) {
             warnings.push(`Isochrone failed for ${address} at ${label} minutes.`);
             continue;
@@ -453,13 +490,8 @@ const AddressProximityWebapp = () => {
 
           const sourceId = `isochrone-${label}-${index}`;
 
-          if (map.current.getLayer(sourceId)) {
-            map.current.removeLayer(sourceId);
-          }
-
-          if (map.current.getSource(sourceId)) {
-            map.current.removeSource(sourceId);
-          }
+          if (map.current.getLayer(sourceId)) map.current.removeLayer(sourceId);
+          if (map.current.getSource(sourceId)) map.current.removeSource(sourceId);
 
           map.current.addSource(sourceId, {
             type: 'geojson',
@@ -519,6 +551,7 @@ const AddressProximityWebapp = () => {
     } finally {
       setLoading(false);
       setLoadingMessage('');
+      setLoadingProgress(0);
     }
   };
 
@@ -555,147 +588,274 @@ const AddressProximityWebapp = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#e2e8f0_0%,_#f8fafc_40%,_#ecfeff_100%)] px-4 py-6 sm:px-6 lg:px-10">
-      <div className="mx-auto w-full max-w-[1400px]">
-        <Card className="overflow-hidden border-slate-200/80 bg-white/85 shadow-2xl shadow-slate-900/10 backdrop-blur-sm">
-          <CardHeader className="border-b border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-cyan-900 px-6 py-7 text-white">
-            <p className="font-[family-name:var(--font-geist-mono)] text-[11px] uppercase tracking-[0.35em] text-cyan-200">
-              Zip Reach Studio
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Zip Code Finder</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-200 sm:text-base">
-              Paste addresses, generate drive-time rings, and export segmented ZIP lists for rapid territory planning.
-            </p>
-          </CardHeader>
+    <div className="mesh-bg min-h-screen text-slate-200">
+      {/* ─── Progress bar ─── */}
+      {loading && (
+        <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-slate-800/50">
+          <div
+            className="progress-bar h-full transition-all duration-500 ease-out"
+            style={{ width: `${loadingProgress}%` }}
+          />
+        </div>
+      )}
 
-          <CardContent className="p-0">
-            <div className="grid lg:grid-cols-[360px_minmax(0,1fr)]">
-              <aside className="border-b border-slate-200 bg-slate-50/80 p-5 lg:border-b-0 lg:border-r">
-                <div className="space-y-4">
-                  <label
-                    htmlFor="addresses-input"
-                    className="font-[family-name:var(--font-geist-mono)] text-xs uppercase tracking-[0.2em] text-slate-600"
-                  >
-                    Addresses (one per line)
-                  </label>
-                  <textarea
-                    id="addresses-input"
-                    aria-label="Addresses"
-                    placeholder="1 Market St, San Francisco, CA\n420 W 14th St, New York, NY"
-                    value={addressesInput}
-                    onChange={handleAddressesChange}
-                    className="h-48 w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200"
-                  />
-
-                  <Button
-                    onClick={getProximityIsochrones}
-                    disabled={loading}
-                    className="w-full bg-slate-900 text-white hover:bg-slate-800"
-                  >
-                    {loading ? loadingMessage || 'Loading...' : 'Find ZIP Coverage'}
-                  </Button>
-
-                  {!MAPBOX_TOKEN && (
-                    <Button onClick={loadDemoScenario} variant="outline" className="w-full border-cyan-300 text-cyan-900">
-                      Load Demo (3 Random Addresses)
-                    </Button>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="rounded-md border border-slate-200 bg-white p-3">
-                      <p className="text-slate-500">Addresses</p>
-                      <p className="text-lg font-semibold text-slate-900">{addresses.length}</p>
-                    </div>
-                    <div className="rounded-md border border-slate-200 bg-white p-3">
-                      <p className="text-slate-500">Unique ZIPs</p>
-                      <p className="text-lg font-semibold text-slate-900">{uniqueZipCount}</p>
-                    </div>
-                  </div>
-
-                  {error && (
-                    <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{error}</div>
-                  )}
-
-                  {copyMessage && (
-                    <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800">
-                      {copyMessage}
-                    </div>
-                  )}
-
-                  {zipcodeRows.length > 0 && (
-                    <div className="grid gap-2">
-                      <Button onClick={toggleShowZipcodes} variant="secondary" className="w-full">
-                        {showZipcodes ? 'Hide ZIP Table' : 'Show ZIP Table'}
-                      </Button>
-                      <Button onClick={copyZipcodesToClipboard} variant="outline" className="w-full">
-                        Copy ZIPs to Clipboard
-                      </Button>
-                      <Button onClick={exportToCSV} variant="outline" className="w-full">
-                        Export ZIPs to CSV
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </aside>
-
-              <section className="bg-white p-4 sm:p-5">
-                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                  <span className="font-[family-name:var(--font-geist-mono)] uppercase tracking-[0.2em] text-slate-600">
-                    Drive Bands
-                  </span>
-                  {TIME_RANGES.map((range) => (
-                    <div key={range.label} className="inline-flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: range.color }} />
-                      <span>{range.label} min</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm">
-                  {MAPBOX_TOKEN ? (
-                    <div ref={mapContainer} className="h-[58vh] min-h-[420px] w-full" />
-                  ) : (
-                    <div className="flex h-[58vh] min-h-[420px] w-full items-center justify-center bg-[linear-gradient(135deg,#e2e8f0_0%,#bae6fd_45%,#f0f9ff_100%)] p-6">
-                      <div className="max-w-xl rounded-xl border border-slate-200 bg-white/85 p-6 text-center shadow-lg backdrop-blur-sm">
-                        <p className="font-[family-name:var(--font-geist-mono)] text-xs uppercase tracking-[0.2em] text-slate-500">
-                          Map Preview Disabled
-                        </p>
-                        <h3 className="mt-2 text-2xl font-semibold text-slate-900">Demo mode is ready</h3>
-                        <p className="mt-3 text-sm text-slate-700">
-                          Click <span className="font-semibold">Load Demo (3 Random Addresses)</span> to generate sample ZIP
-                          coverage without API keys.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {showZipcodes && zipcodeRows.length > 0 && (
-                  <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
-                    <table className="min-w-full divide-y divide-slate-200 text-sm">
-                      <thead className="bg-slate-100 text-left text-xs uppercase tracking-[0.14em] text-slate-600">
-                        <tr>
-                          <th className="px-3 py-2">Address</th>
-                          <th className="px-3 py-2">Time Range</th>
-                          <th className="px-3 py-2">ZIP Code</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white text-slate-800">
-                        {zipcodeRows.map((row) => (
-                          <tr key={`${row.addressLabel}-${row.timeRange}-${row.zipcode}`}>
-                            <td className="px-3 py-2">{row.addressLabel}</td>
-                            <td className="px-3 py-2">{row.timeRange}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">{row.zipcode}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
+      <div className="relative z-10 flex min-h-screen flex-col">
+        {/* ─── Top bar ─── */}
+        <header className="flex items-center justify-between border-b border-slate-700/50 px-5 py-3 sm:px-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-blue-500">
+              <MapPin className="h-4 w-4 text-white" />
             </div>
-          </CardContent>
-        </Card>
+            <div>
+              <h1 className="text-sm font-semibold tracking-tight text-white sm:text-base">Zip Reach Studio</h1>
+              <p className="hidden text-[11px] text-slate-400 sm:block">Drive-time ZIP coverage</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {TIME_RANGES.map((range) => (
+              <div
+                key={range.label}
+                className="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium sm:inline-flex"
+                style={{ backgroundColor: range.bg, color: range.text }}
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: range.color }}
+                />
+                {range.label}m
+              </div>
+            ))}
+          </div>
+        </header>
+
+        {/* ─── Main layout ─── */}
+        <div className="flex flex-1 flex-col lg:flex-row">
+          {/* ─── Sidebar ─── */}
+          <aside className="custom-scrollbar w-full shrink-0 overflow-y-auto border-b border-slate-700/50 p-4 sm:p-5 lg:w-[360px] lg:border-b-0 lg:border-r">
+            <div className="space-y-4">
+              {/* Label */}
+              <label
+                htmlFor="addresses-input"
+                className="mono-label text-slate-400"
+              >
+                Addresses (one per line)
+              </label>
+
+              {/* Textarea */}
+              <div className="group relative">
+                <textarea
+                  id="addresses-input"
+                  aria-label="Addresses"
+                  placeholder={"1 Market St, San Francisco, CA\n420 W 14th St, New York, NY"}
+                  value={addressesInput}
+                  onChange={handleAddressesChange}
+                  className="h-44 w-full resize-y rounded-xl border border-slate-700/60 bg-slate-800/50 px-4 py-3 text-sm text-slate-100 placeholder-slate-500 outline-none transition-all duration-300 focus:border-cyan-500/50 focus:bg-slate-800/70 focus:shadow-[0_0_20px_rgba(6,182,212,0.1)] focus:ring-1 focus:ring-cyan-500/30"
+                />
+                {addresses.length > 0 && (
+                  <span className="absolute bottom-2 right-3 rounded-md bg-slate-700/60 px-2 py-0.5 text-[10px] text-slate-400">
+                    {addresses.length} address{addresses.length !== 1 ? 'es' : ''}
+                  </span>
+                )}
+              </div>
+
+              {/* Primary button */}
+              <button
+                onClick={getProximityIsochrones}
+                disabled={loading}
+                className="btn-glow flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all duration-300 disabled:opacity-50 disabled:shadow-none"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {loadingMessage || 'Loading...'}
+                  </>
+                ) : (
+                  <>
+                    <Search className="h-4 w-4" />
+                    Find ZIP Coverage
+                  </>
+                )}
+              </button>
+
+              {/* Demo button */}
+              {!MAPBOX_TOKEN && (
+                <button
+                  onClick={loadDemoScenario}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/5 px-4 py-2.5 text-sm font-medium text-cyan-300 transition-all duration-300 hover:border-cyan-500/50 hover:bg-cyan-500/10"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Load Demo (3 Random Addresses)
+                </button>
+              )}
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="glass-light rounded-xl p-3.5 transition-all duration-300 hover:border-slate-600/30">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <MapPin className="h-3.5 w-3.5" />
+                    <span className="text-xs">Addresses</span>
+                  </div>
+                  <p className="mt-1.5 text-2xl font-bold tabular-nums text-white">{addresses.length}</p>
+                </div>
+                <div className="glass-light rounded-xl p-3.5 transition-all duration-300 hover:border-slate-600/30">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Hash className="h-3.5 w-3.5" />
+                    <span className="text-xs">Unique ZIPs</span>
+                  </div>
+                  <p className="mt-1.5 text-2xl font-bold tabular-nums text-white">{uniqueZipCount}</p>
+                </div>
+              </div>
+
+              {/* Drive bands legend (mobile) */}
+              <div className="flex flex-wrap gap-2 sm:hidden">
+                {TIME_RANGES.map((range) => (
+                  <div
+                    key={range.label}
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
+                    style={{ backgroundColor: range.bg, color: range.text }}
+                  >
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: range.color }}
+                    />
+                    {range.label}m
+                  </div>
+                ))}
+              </div>
+
+              {/* Toast messages */}
+              {error && (
+                <div className="toast-enter flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {copyMessage && (
+                <div className="toast-enter flex items-start gap-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                  <span>{copyMessage}</span>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              {zipcodeRows.length > 0 && (
+                <div className="animate-fade-in-up space-y-2">
+                  <button
+                    onClick={toggleShowZipcodes}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/40 px-4 py-2.5 text-sm font-medium text-slate-200 transition-all duration-200 hover:border-slate-600 hover:bg-slate-700/50"
+                  >
+                    {showZipcodes ? (
+                      <>
+                        <EyeOff className="h-4 w-4" />
+                        Hide ZIP Table
+                      </>
+                    ) : (
+                      <>
+                        <Table2 className="h-4 w-4" />
+                        Show ZIP Table
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={copyZipcodesToClipboard}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/40 px-4 py-2.5 text-sm font-medium text-slate-200 transition-all duration-200 hover:border-slate-600 hover:bg-slate-700/50"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy ZIPs to Clipboard
+                  </button>
+                  <button
+                    onClick={exportToCSV}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/40 px-4 py-2.5 text-sm font-medium text-slate-200 transition-all duration-200 hover:border-slate-600 hover:bg-slate-700/50"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export ZIPs to CSV
+                  </button>
+                </div>
+              )}
+            </div>
+          </aside>
+
+          {/* ─── Main content ─── */}
+          <main className="flex flex-1 flex-col p-3 sm:p-4">
+            {/* Map */}
+            <div className="relative flex-1 overflow-hidden rounded-2xl border border-slate-700/40 shadow-2xl shadow-black/30">
+              {loading && (
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+                  <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-700/30 bg-slate-900/80 px-8 py-6 backdrop-blur-xl">
+                    <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
+                    <p className="text-sm font-medium text-slate-200">{loadingMessage}</p>
+                    <div className="h-1.5 w-40 overflow-hidden rounded-full bg-slate-700">
+                      <div
+                        className="progress-bar h-full rounded-full transition-all duration-500"
+                        style={{ width: `${loadingProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-slate-400">{loadingProgress}% complete</p>
+                  </div>
+                </div>
+              )}
+
+              {MAPBOX_TOKEN ? (
+                <div ref={mapContainer} className="h-full min-h-[420px] w-full" />
+              ) : (
+                <div className="flex h-full min-h-[420px] w-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
+                  <div className="max-w-md rounded-2xl border border-slate-700/40 bg-slate-800/60 p-8 text-center backdrop-blur-xl">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400/20 to-blue-500/20">
+                      <MapPin className="h-7 w-7 text-cyan-400" />
+                    </div>
+                    <p className="mono-label text-slate-500">Map Preview Disabled</p>
+                    <h3 className="mt-2 text-xl font-semibold text-white">Demo mode is ready</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                      Click{' '}
+                      <button
+                        onClick={loadDemoScenario}
+                        className="font-semibold text-cyan-400 transition-colors hover:text-cyan-300"
+                      >
+                        Load Demo
+                      </button>{' '}
+                      to generate sample ZIP coverage without API keys.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ZIP table */}
+            {showZipcodes && zipcodeRows.length > 0 && (
+              <div className="animate-fade-in-up mt-4 max-h-[50vh] overflow-auto rounded-2xl border border-slate-700/40 custom-scrollbar">
+                <table className="zip-table min-w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-800/90 text-left text-xs text-slate-400">
+                      <th className="mono-label px-4 py-3">Address</th>
+                      <th className="mono-label px-4 py-3">Time Range</th>
+                      <th className="mono-label px-4 py-3">ZIP Code</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {zipcodeRows.map((row, i) => (
+                      <tr
+                        key={`${row.addressLabel}-${row.timeRange}-${row.zipcode}`}
+                        className="animate-fade-in-up bg-slate-900/40 text-slate-300"
+                        style={{ animationDelay: `${Math.min(i * 20, 500)}ms` }}
+                      >
+                        <td className="px-4 py-2.5 text-slate-200">{row.addressLabel}</td>
+                        <td className="px-4 py-2.5">
+                          <TimeBadge label={row.timeRange} />
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="rounded-md bg-slate-800/60 px-2 py-0.5 font-mono text-xs font-semibold text-white">
+                            {row.zipcode}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </main>
+        </div>
       </div>
     </div>
   );
