@@ -32,6 +32,7 @@ const ISOCHRONE_OPTIONS = [
   { label: '0-20', minTime: 0, maxTime: 20, color: '#f97316', bg: 'rgba(249,115,22,0.12)', text: '#fb923c' },
   { label: '20-30', minTime: 20, maxTime: 30, color: '#eab308', bg: 'rgba(234,179,8,0.12)', text: '#fde047' },
   { label: '20-40', minTime: 20, maxTime: 40, color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)', text: '#38bdf8' },
+  { label: '30-40', minTime: 30, maxTime: 40, color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', text: '#93c5fd' },
   { label: '40-60', minTime: 40, maxTime: 60, color: '#22c55e', bg: 'rgba(34,197,94,0.12)', text: '#4ade80' },
   { label: '60-90', minTime: 60, maxTime: 90, color: '#14b8a6', bg: 'rgba(20,184,166,0.12)', text: '#5eead4' },
 ];
