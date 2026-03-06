@@ -118,6 +118,12 @@ const getIsochroneOption = (label) => {
   );
 };
 
+const getSelectedIsochroneOptions = (labels) => {
+  const selected = new Set(labels);
+  const options = ISOCHRONE_OPTIONS.filter((option) => selected.has(option.label));
+  return options.length > 0 ? options : [getIsochroneOption(DEFAULT_ISOCHRONE_LABEL)];
+};
+
 const getRandomAddresses = (count) => {
   const shuffled = [...DEMO_ADDRESS_POOL].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, count);
@@ -139,21 +145,22 @@ const takeUniqueZips = (count, used) => {
   return picks;
 };
 
-const buildDemoZipCoverage = (selectedAddresses, selectedIsochroneLabel) => {
-  const selectedIsochrone = getIsochroneOption(selectedIsochroneLabel);
-  const zipCount = Math.max(
-    5,
-    Math.min(10, Math.round(selectedIsochrone.maxTime / 10) + (selectedIsochrone.minTime === 0 ? 2 : 0))
-  );
+const buildDemoZipCoverage = (selectedAddresses, selectedIsochroneLabels) => {
+  const selectedIsochrones = getSelectedIsochroneOptions(selectedIsochroneLabels);
   const coverage = {};
 
   selectedAddresses.forEach((address, index) => {
     const used = new Set();
     const stableAddressLabel = `${index + 1}. ${address}`;
+    const rangesForAddress = {};
 
-    coverage[stableAddressLabel] = {
-      [selectedIsochrone.label]: takeUniqueZips(zipCount, used),
-    };
+    selectedIsochrones.forEach((selectedIsochrone) => {
+      const span = selectedIsochrone.maxTime - selectedIsochrone.minTime || selectedIsochrone.maxTime;
+      const zipCount = Math.max(4, Math.min(10, Math.round(span / 10) + 4));
+      rangesForAddress[selectedIsochrone.label] = takeUniqueZips(zipCount, used);
+    });
+
+    coverage[stableAddressLabel] = rangesForAddress;
   });
 
   return coverage;
@@ -187,13 +194,17 @@ const AddressProximityWebapp = () => {
   const [error, setError] = useState(null);
   const [showZipcodes, setShowZipcodes] = useState(false);
   const [copyMessage, setCopyMessage] = useState('');
-  const [selectedIsochroneLabel, setSelectedIsochroneLabel] = useState(DEFAULT_ISOCHRONE_LABEL);
+  const [selectedIsochroneLabels, setSelectedIsochroneLabels] = useState([DEFAULT_ISOCHRONE_LABEL]);
 
   const mapContainer = useRef(null);
   const map = useRef(null);
   const markers = useRef([]);
   const geocodeCacheRef = useRef(new Map());
   const isochroneCacheRef = useRef(new Map());
+  const selectedIsochroneOptions = useMemo(
+    () => getSelectedIsochroneOptions(selectedIsochroneLabels),
+    [selectedIsochroneLabels]
+  );
 
   /* ─── Auto-dismiss messages ─── */
   useEffect(() => {
@@ -375,8 +386,22 @@ const AddressProximityWebapp = () => {
     }
   };
 
-  const handleIsochroneChange = (event) => {
-    setSelectedIsochroneLabel(event.target.value);
+  const toggleIsochroneSelection = (label) => {
+    setSelectedIsochroneLabels((current) => {
+      const isSelected = current.includes(label);
+      if (isSelected && current.length === 1) {
+        return current;
+      }
+
+      const nextSelection = isSelected
+        ? current.filter((currentLabel) => currentLabel !== label)
+        : [...current, label];
+
+      return ISOCHRONE_OPTIONS.map((option) => option.label).filter((optionLabel) =>
+        nextSelection.includes(optionLabel)
+      );
+    });
+
     setAllZipcodes({});
     setShowZipcodes(false);
     setCopyMessage('');
@@ -410,6 +435,8 @@ const AddressProximityWebapp = () => {
     if (isochroneCacheRef.current.has(cacheKey)) {
       return isochroneCacheRef.current.get(cacheKey);
     }
+
+    await delay(API_DELAY_MS);
 
     const isochroneUrl = `https://api.mapbox.com/isochrone/v1/mapbox/driving/${lng},${lat}?contours_minutes=${time}&polygons=true&access_token=${MAPBOX_TOKEN}`;
     const isochroneResponse = await fetch(isochroneUrl);
@@ -495,9 +522,15 @@ const AddressProximityWebapp = () => {
   };
 
   const loadDemoScenario = () => {
-    const selectedIsochrone = getIsochroneOption(selectedIsochroneLabel);
     const demoAddresses = getRandomAddresses(3);
-    const demoCoverage = buildDemoZipCoverage(demoAddresses, selectedIsochrone.label);
+    const demoCoverage = buildDemoZipCoverage(
+      demoAddresses,
+      selectedIsochroneOptions.map((option) => option.label)
+    );
+    const selectedRangeSummary =
+      selectedIsochroneOptions.length === 1
+        ? selectedIsochroneOptions[0].label
+        : `${selectedIsochroneOptions.length} selected ranges`;
 
     setAddressesInput(demoAddresses.join('\n'));
     setAddresses(demoAddresses);
@@ -507,7 +540,7 @@ const AddressProximityWebapp = () => {
     setLoadingMessage('');
     setLoadingProgress(0);
     setError('Demo mode active: using sample ZIP coverage because NEXT_PUBLIC_MAPBOX_API_KEY is not set.');
-    setCopyMessage(`Loaded 3 random demo addresses for the ${selectedIsochrone.label} range.`);
+    setCopyMessage(`Loaded 3 random demo addresses for ${selectedRangeSummary}.`);
   };
 
   const getProximityIsochrones = async () => {
@@ -554,11 +587,19 @@ const AddressProximityWebapp = () => {
 
     removeAllIsochroneLayersAndSources();
 
-    const selectedIsochrone = getIsochroneOption(selectedIsochroneLabel);
     const collectedZipcodes = {};
     const warnings = [];
-    const totalSteps =
-      dedupedAddresses.length * (selectedIsochrone.minTime > 0 ? 4 : 3);
+    const processingIsochrones = [...selectedIsochroneOptions].sort((a, b) => {
+      if (a.maxTime !== b.maxTime) return b.maxTime - a.maxTime;
+      return b.minTime - a.minTime;
+    });
+    const stepsPerAddress =
+      1 +
+      selectedIsochroneOptions.reduce(
+        (sum, selectedIsochrone) => sum + (selectedIsochrone.minTime > 0 ? 3 : 2),
+        0
+      );
+    const totalSteps = dedupedAddresses.length * stepsPerAddress;
     let completedSteps = 0;
 
     try {
@@ -567,9 +608,7 @@ const AddressProximityWebapp = () => {
       }
 
       for (const [index, address] of dedupedAddresses.entries()) {
-        setLoadingMessage(
-          `Processing address ${index + 1} of ${dedupedAddresses.length} (${selectedIsochrone.label})`
-        );
+        setLoadingMessage(`Processing address ${index + 1} of ${dedupedAddresses.length}`);
 
         if (index > 0) await delay(API_DELAY_MS);
 
@@ -590,45 +629,57 @@ const AddressProximityWebapp = () => {
           .addTo(map.current);
         markers.current.push(marker);
 
-        await delay(API_DELAY_MS);
-        const outerIsochrone = await getIsochroneData(lng, lat, selectedIsochrone.maxTime);
-        completedSteps++;
-        setLoadingProgress(Math.round((completedSteps / totalSteps) * 100));
+        const zipcodesForAddress = {};
 
-        if (!outerIsochrone) {
-          warnings.push(`Isochrone failed for ${address} at ${selectedIsochrone.maxTime} minutes.`);
-          continue;
-        }
+        for (const selectedIsochrone of processingIsochrones) {
+          setLoadingMessage(
+            `Processing address ${index + 1} of ${dedupedAddresses.length} (${selectedIsochrone.label})`
+          );
 
-        let innerIsochrone = null;
-        if (selectedIsochrone.minTime > 0) {
-          await delay(API_DELAY_MS);
-          innerIsochrone = await getIsochroneData(lng, lat, selectedIsochrone.minTime);
+          const outerIsochrone = await getIsochroneData(lng, lat, selectedIsochrone.maxTime);
           completedSteps++;
           setLoadingProgress(Math.round((completedSteps / totalSteps) * 100));
 
-          if (!innerIsochrone) {
-            warnings.push(`Isochrone failed for ${address} at ${selectedIsochrone.minTime} minutes.`);
+          if (!outerIsochrone) {
+            warnings.push(`Isochrone failed for ${address} at ${selectedIsochrone.maxTime} minutes.`);
             continue;
           }
+
+          let innerIsochrone = null;
+          if (selectedIsochrone.minTime > 0) {
+            innerIsochrone = await getIsochroneData(lng, lat, selectedIsochrone.minTime);
+            completedSteps++;
+            setLoadingProgress(Math.round((completedSteps / totalSteps) * 100));
+
+            if (!innerIsochrone) {
+              warnings.push(`Isochrone failed for ${address} at ${selectedIsochrone.minTime} minutes.`);
+              continue;
+            }
+          }
+
+          const isochroneBand = await buildIsochroneBand(
+            outerIsochrone,
+            innerIsochrone,
+            selectedIsochrone.label
+          );
+          addIsochroneLayer(isochroneBand, selectedIsochrone.label, index, selectedIsochrone.color);
+
+          const fetchedZipCodes = await fetchZipCodes(isochroneBand, selectedIsochrone.label);
+          completedSteps++;
+          setLoadingProgress(Math.round((completedSteps / totalSteps) * 100));
+          zipcodesForAddress[selectedIsochrone.label] = fetchedZipCodes;
         }
 
-        const isochroneBand = await buildIsochroneBand(
-          outerIsochrone,
-          innerIsochrone,
-          selectedIsochrone.label
-        );
-        addIsochroneLayer(isochroneBand, selectedIsochrone.label, index, selectedIsochrone.color);
-
-        const fetchedZipCodes = await fetchZipCodes(isochroneBand, selectedIsochrone.label);
-        completedSteps++;
-        setLoadingProgress(Math.round((completedSteps / totalSteps) * 100));
-
         const stableAddressLabel = `${index + 1}. ${address}`;
+        const orderedZipcodes = {};
 
-        collectedZipcodes[stableAddressLabel] = {
-          [selectedIsochrone.label]: fetchedZipCodes,
-        };
+        selectedIsochroneOptions.forEach((selectedIsochrone) => {
+          if (zipcodesForAddress[selectedIsochrone.label]) {
+            orderedZipcodes[selectedIsochrone.label] = zipcodesForAddress[selectedIsochrone.label];
+          }
+        });
+
+        collectedZipcodes[stableAddressLabel] = orderedZipcodes;
       }
 
       setAllZipcodes(collectedZipcodes);
@@ -713,7 +764,11 @@ const AddressProximityWebapp = () => {
             <span className="hidden text-[11px] uppercase tracking-[0.2em] text-slate-500 lg:block">
               Selected
             </span>
-            <TimeBadge label={selectedIsochroneLabel} />
+            <div className="hidden max-w-[28rem] flex-wrap items-center justify-end gap-2 sm:flex">
+              {selectedIsochroneOptions.map((selectedIsochrone) => (
+                <TimeBadge key={selectedIsochrone.label} label={selectedIsochrone.label} />
+              ))}
+            </div>
           </div>
         </header>
 
@@ -748,22 +803,45 @@ const AddressProximityWebapp = () => {
               </div>
 
               <div className="space-y-2">
-                <label htmlFor="isochrone-range" className="mono-label text-slate-400">
-                  Isochrone Range
-                </label>
-                <select
-                  id="isochrone-range"
-                  value={selectedIsochroneLabel}
-                  onChange={handleIsochroneChange}
-                  disabled={loading}
-                  className="w-full rounded-xl border border-slate-700/60 bg-slate-800/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all duration-300 focus:border-cyan-500/50 focus:bg-slate-800/70 focus:ring-1 focus:ring-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                <span id="isochrone-ranges-label" className="mono-label text-slate-400">
+                  Isochrone Ranges
+                </span>
+                <div
+                  role="group"
+                  aria-labelledby="isochrone-ranges-label"
+                  className="grid grid-cols-2 gap-2"
                 >
                   {ISOCHRONE_OPTIONS.map((option) => (
-                    <option key={option.label} value={option.label}>
-                      {option.label}
-                    </option>
+                    <button
+                      key={option.label}
+                      type="button"
+                      onClick={() => toggleIsochroneSelection(option.label)}
+                      disabled={loading}
+                      aria-pressed={selectedIsochroneLabels.includes(option.label)}
+                      className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${
+                        selectedIsochroneLabels.includes(option.label)
+                          ? 'border-slate-500 bg-slate-700/60 text-white shadow-[0_0_20px_rgba(15,23,42,0.18)]'
+                          : 'border-slate-700/60 bg-slate-800/40 text-slate-300 hover:border-slate-600 hover:bg-slate-700/40'
+                      }`}
+                      style={
+                        selectedIsochroneLabels.includes(option.label)
+                          ? { boxShadow: `inset 0 0 0 1px ${option.color}55` }
+                          : undefined
+                      }
+                    >
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: option.color }}
+                        />
+                        {option.label}
+                      </span>
+                    </button>
                   ))}
-                </select>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Choose one or more drive-time bands.
+                </p>
               </div>
 
               {/* Primary button */}
@@ -816,20 +894,8 @@ const AddressProximityWebapp = () => {
 
               {/* Drive bands legend (mobile) */}
               <div className="flex flex-wrap gap-2 sm:hidden">
-                {ISOCHRONE_OPTIONS.map((range) => (
-                  <div
-                    key={range.label}
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                      range.label === selectedIsochroneLabel ? 'ring-1 ring-white/20' : 'opacity-70'
-                    }`}
-                    style={{ backgroundColor: range.bg, color: range.text }}
-                  >
-                    <span
-                      className="h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: range.color }}
-                    />
-                    {range.label}m
-                  </div>
+                {selectedIsochroneOptions.map((range) => (
+                  <TimeBadge key={range.label} label={range.label} />
                 ))}
               </div>
 
